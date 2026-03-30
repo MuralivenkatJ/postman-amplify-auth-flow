@@ -1,0 +1,303 @@
+{
+	"info": {
+		"_postman_id": "881e24c8-00f7-4ce0-8913-d95a0d1e665f",
+		"name": "AWS Amplify Cognito Signin",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "21259154"
+	},
+	"item": [
+		{
+			"name": "Init Sing In",
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"exec": [
+							"// Full 2048-bit SRP Group 14 Prime (N)\r",
+							"const N_HEX = \"FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD129024E088A67CC74020BBEA63B139B22514A08798E3404DDEF9519B3CD3A431B302B0A6DF25F14374FE1356D6D51C245E485B576625E7EC6F44C42E9A637ED6B0BFF5CB6F406B7EDEE386BFB5A899FA5AE9F24117C4B1FE649286651ECE45B3DC2007CB8A163BF0598DA48361C55D39A69163FA8FD24CF5F83655D23DCA3AD961C62F356208552BB9ED529077096966D670C354E4ABC9804F1746C08CA18217C32905E462E36CE3BE39E772C180E86039B2783A2EC07A28FB5C55DF06F4C52C9DE2BCBF6955817183995497CEA956AE515D2261898FA051015728E5A8AAAC42DAD33170D04507A33A85521ABDF1CBA64ECFB850458DBEF0A8AEA71575D060C7DB3970F85A6E1E4C7ABF5AE8CDB0933D71E8C94E04A25619DCEE3D2261AD2EE6BF12FFA06D98A0864D87602733EC86A64521F2B18177B200CBBE117577A615D6C770988C0BAD946E208E24FA074E5AB3143DB5BFCE0FD108E4B82D120A93AD2CAFFFFFFFFFFFFFFFF\";\r",
+							"\r",
+							"const N = BigInt(\"0x\" + N_HEX);\r",
+							"const g = BigInt(2);\r",
+							"\r",
+							"function generateSRP_A() {\r",
+							"    // 1. Generate a random 256-bit private 'a'\r",
+							"    let aHex = \"\";\r",
+							"    for (let i = 0; i < 64; i++) {\r",
+							"        aHex += Math.floor(Math.random() * 16).toString(16);\r",
+							"    }\r",
+							"    const a = BigInt(\"0x\" + aHex);\r",
+							"    \r",
+							"    // 2. Calculate A = g^a mod N\r",
+							"    const A = expMod(g, a, N);\r",
+							"\r",
+							"    // Return as hex string (required by Cognito)\r",
+							"    return {private: a.toString(16), public: A.toString(16)};\r",
+							"}\r",
+							"\r",
+							"// Efficient Modular Exponentiation\r",
+							"function expMod(base, exp, mod) {\r",
+							"    let res = 1n;\r",
+							"    base = base % mod;\r",
+							"    while (exp > 0n) {\r",
+							"        if (exp % 2n === 1n) res = (res * base) % mod;\r",
+							"        base = (base * base) % mod;\r",
+							"        exp = exp / 2n;\r",
+							"    }\r",
+							"    return res;\r",
+							"}\r",
+							"\r",
+							"const keys = generateSRP_A();\r",
+							"pm.collectionVariables.set(\"srpA\", keys.public);\r",
+							"pm.collectionVariables.set(\"srpAPrivate\", keys.private);\r",
+							"\r",
+							""
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				},
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"const response = pm.response.json();\r",
+							"\r",
+							"pm.collectionVariables.set('salt', response.ChallengeParameters.SALT);\r",
+							"pm.collectionVariables.set('secretBlock', response.ChallengeParameters.SECRET_BLOCK);\r",
+							"pm.collectionVariables.set('srpB', response.ChallengeParameters.SRP_B);\r",
+							"pm.collectionVariables.set('userIdForSrp', response.ChallengeParameters.USER_ID_FOR_SRP);"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/x-amz-json-1.1",
+						"type": "text"
+					},
+					{
+						"key": "X-Amz-Target",
+						"value": "AWSCognitoIdentityProviderService.InitiateAuth",
+						"type": "text"
+					},
+					{
+						"key": "x-amz-user-agent",
+						"value": "aws-amplify/6.16.2 auth/4 framework/0",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n  \"AuthFlow\": \"USER_SRP_AUTH\",\r\n  \"ClientId\": \"{{clientId}}\",\r\n  \"AuthParameters\": {\r\n    \"USERNAME\": \"{{username}}\",\r\n    \"SRP_A\": \"{{srpA}}\"\r\n  }\r\n}\r\n",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "https://cognito-idp.{{region}}.amazonaws.com/",
+					"protocol": "https",
+					"host": [
+						"cognito-idp",
+						"{{region}}",
+						"amazonaws",
+						"com"
+					],
+					"path": [
+						""
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Complete Sing In",
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"exec": [
+							"const CryptoJS = require('crypto-js');\r",
+							"\r",
+							"// --- 1. CONFIGURATION ---\r",
+							"const password = pm.environment.get(\"password\");\r",
+							"const salt = pm.collectionVariables.get(\"salt\"); \r",
+							"const srpB = pm.collectionVariables.get(\"srpB\");       \r",
+							"const secretBlock = pm.collectionVariables.get(\"secretBlock\"); \r",
+							"const srpA = pm.collectionVariables.get(\"srpA\");       \r",
+							"const srpAPrivate = pm.collectionVariables.get('srpAPrivate');\r",
+							"const userIdForSrp = pm.collectionVariables.get(\"userIdForSrp\");\r",
+							"const poolName = pm.environment.get(\"userpoolId\").split(\"_\")[1];\r",
+							"\r",
+							"\r",
+							"const N_HEX = \"FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD129024E088A67CC74020BBEA63B139B22514A08798E3404DDEF9519B3CD3A431B302B0A6DF25F14374FE1356D6D51C245E485B576625E7EC6F44C42E9A637ED6B0BFF5CB6F406B7EDEE386BFB5A899FA5AE9F24117C4B1FE649286651ECE45B3DC2007CB8A163BF0598DA48361C55D39A69163FA8FD24CF5F83655D23DCA3AD961C62F356208552BB9ED529077096966D670C354E4ABC9804F1746C08CA18217C32905E462E36CE3BE39E772C180E86039B2783A2EC07A28FB5C55DF06F4C52C9DE2BCBF6955817183995497CEA956AE515D2261898FA051015728E5A8AAAC42DAD33170D04507A33A85521ABDF1CBA64ECFB850458DBEF0A8AEA71575D060C7DB3970F85A6E1E4C7ABF5AE8CDB0933D71E8C94E04A25619DCEE3D2261AD2EE6BF12FFA06D98A0864D87602733EC86A64521F2B18177B200CBBE117577A615D6C770988C0BAD946E208E24FA074E5AB3143DB5BFCE0FD108E4B82D120A93AD2CAFFFFFFFFFFFFFFFF\";\r",
+							"const g = BigInt(2);\r",
+							"const N = BigInt(\"0x\" + N_HEX);\r",
+							"\r",
+							"// --- 2. AWS HELPERS ---\r",
+							"function padHex(hexStr) {\r",
+							"    // Ensure even length\r",
+							"    if (hexStr.length % 2 === 1) {\r",
+							"        hexStr = '0' + hexStr;\r",
+							"    }\r",
+							"    // AWS Cognito Quirk (Java BigInteger compatibility):\r",
+							"    // SRP cryptographic values must be strictly positive integers. Because Cognito's \r",
+							"    // backend uses Java, if a hex string starts with 8 through F, Java's BigInteger \r",
+							"    // reads the leading '1' bit as a negative sign (Two's complement). \r",
+							"    // We prepend '00' to push the bits over, forcing the sign bit to 0 and keeping the number positive.\r",
+							"    if (parseInt(hexStr[0], 16) >= 8) {\r",
+							"        hexStr = '00' + hexStr;\r",
+							"    }\r",
+							"    return hexStr;\r",
+							"}\r",
+							"\r",
+							"function modPow(base, exp, mod) {\r",
+							"    let res = 1n;\r",
+							"    base = base % mod;\r",
+							"    while (exp > 0n) {\r",
+							"        if (exp % 2n === 1n) res = (res * base) % mod;\r",
+							"        base = (base * base) % mod;\r",
+							"        exp = exp / 2n;\r",
+							"    }\r",
+							"    return res;\r",
+							"}\r",
+							"\r",
+							"const monthNames = [\"Jan\", \"Feb\", \"Mar\", \"Apr\", \"May\", \"Jun\", \"Jul\", \"Aug\", \"Sep\", \"Oct\", \"Nov\", \"Dec\"];\r",
+							"const weekNames = [\"Sun\", \"Mon\", \"Tue\", \"Wed\", \"Thu\", \"Fri\", \"Sat\"];\r",
+							"const now = new Date();\r",
+							"const pad = n => n < 10 ? '0' + n : n; \r",
+							"\r",
+							"const timestamp = `${weekNames[now.getUTCDay()]} ${monthNames[now.getUTCMonth()]} ${now.getUTCDate()} ` +\r",
+							"       `${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}:${pad(now.getUTCSeconds())} UTC ${now.getUTCFullYear()}`;\r",
+							"\r",
+							"\r",
+							"// --- 3. MATH CALCULATIONS ---\r",
+							"\r",
+							"const uHashInput = padHex(srpA) + padHex(srpB);\r",
+							"const uHex = CryptoJS.SHA256(CryptoJS.enc.Hex.parse(uHashInput)).toString();\r",
+							"const u = BigInt(\"0x\" + uHex);\r",
+							"\r",
+							"const kHashInput = padHex(N_HEX) + padHex(g.toString(16)); // N is correctly padded again\r",
+							"const kHex = CryptoJS.SHA256(CryptoJS.enc.Hex.parse(kHashInput)).toString();\r",
+							"const k = BigInt(\"0x\" + kHex);\r",
+							"\r",
+							"const xContentStr = `${poolName}${userIdForSrp}:${password}`;\r",
+							"const xContentHex = CryptoJS.SHA256(xContentStr).toString(); \r",
+							"const xHexInput = padHex(salt) + xContentHex;\r",
+							"const xHex = CryptoJS.SHA256(CryptoJS.enc.Hex.parse(xHexInput)).toString();\r",
+							"const x = BigInt(\"0x\" + xHex);\r",
+							"\r",
+							"const a = BigInt(\"0x\" + srpAPrivate); \r",
+							"const exp = a + (u * x);\r",
+							"const B = BigInt(\"0x\" + srpB);\r",
+							"\r",
+							"const gx = modPow(g, x, N);\r",
+							"const kgx = (k * gx) % N;\r",
+							"let tmp = (B - kgx) % N;\r",
+							"if (tmp < 0n) tmp += N; \r",
+							"const S = modPow(tmp, exp, N);\r",
+							"\r",
+							"// --- 4. AWS COGNITO HKDF (Caldera Derived Key) ---\r",
+							"const ikm = CryptoJS.enc.Hex.parse(padHex(S.toString(16)));\r",
+							"const hkdfSalt = CryptoJS.enc.Hex.parse(padHex(u.toString(16)));\r",
+							"const prk = CryptoJS.HmacSHA256(ikm, hkdfSalt); \r",
+							"\r",
+							"const infoBitsUpdate = CryptoJS.lib.WordArray.create()\r",
+							"    .concat(CryptoJS.enc.Utf8.parse('Caldera Derived Key'))\r",
+							"    .concat(CryptoJS.enc.Hex.parse('01')); // Bulletproof 0x01 byte append\r",
+							"\r",
+							"const hkdfFull = CryptoJS.HmacSHA256(infoBitsUpdate, prk);\r",
+							"const hkdfHex = hkdfFull.toString().substring(0, 32); \r",
+							"const hkdfKey = CryptoJS.enc.Hex.parse(hkdfHex);\r",
+							"\r",
+							"// --- 5. FINAL SIGNATURE ---\r",
+							"const msgBuffer = CryptoJS.lib.WordArray.create()\r",
+							"    .concat(CryptoJS.enc.Utf8.parse(poolName))\r",
+							"    .concat(CryptoJS.enc.Utf8.parse(userIdForSrp))\r",
+							"    .concat(CryptoJS.enc.Base64.parse(secretBlock))\r",
+							"    .concat(CryptoJS.enc.Utf8.parse(timestamp));\r",
+							"\r",
+							"const signature = CryptoJS.HmacSHA256(msgBuffer, hkdfKey).toString(CryptoJS.enc.Base64);\r",
+							"\r",
+							"// --- 6. SET VARIABLES ---\r",
+							"pm.collectionVariables.set('timestamp', timestamp);\r",
+							"pm.collectionVariables.set(\"signature\", signature);"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				},
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"const response = pm.response.json();\r",
+							"\r",
+							"if (response.AuthenticationResult) {\r",
+							"    // Save the tokens to your environment variables\r",
+							"    pm.collectionVariables.set(\"idToken\", response.AuthenticationResult.IdToken);\r",
+							"    pm.collectionVariables.set(\"accessToken\", response.AuthenticationResult.AccessToken);\r",
+							"    pm.collectionVariables.set(\"refreshToken\", response.AuthenticationResult.RefreshToken);\r",
+							"    \r",
+							"    console.log(\"Tokens successfully saved! Ready for backend testing.\");\r",
+							"} else {\r",
+							"    console.log(\"AuthenticationResult not found in response.\");\r",
+							"}"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/x-amz-json-1.1",
+						"type": "text"
+					},
+					{
+						"key": "X-Amz-Target",
+						"value": "AWSCognitoIdentityProviderService.RespondToAuthChallenge",
+						"type": "text"
+					},
+					{
+						"key": "x-amz-user-agent",
+						"value": "aws-amplify/6.16.2 auth/4 framework/0",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"ChallengeName\": \"PASSWORD_VERIFIER\",\r\n    \"ChallengeResponses\": {\r\n        \"PASSWORD_CLAIM_SECRET_BLOCK\": \"{{secretBlock}}\",\r\n        \"PASSWORD_CLAIM_SIGNATURE\": \"{{signature}}\",\r\n        \"TIMESTAMP\": \"{{timestamp}}\",\r\n        \"USERNAME\": \"{{userIdForSrp}}\"\r\n    },\r\n    \"ClientId\": \"{{clientId}}\"\r\n}\r\n",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "https://cognito-idp.{{region}}.amazonaws.com/",
+					"protocol": "https",
+					"host": [
+						"cognito-idp",
+						"{{region}}",
+						"amazonaws",
+						"com"
+					],
+					"path": [
+						""
+					]
+				}
+			},
+			"response": []
+		}
+	]
+}
